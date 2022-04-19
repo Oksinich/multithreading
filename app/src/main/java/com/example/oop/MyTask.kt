@@ -1,16 +1,12 @@
 package com.example.oop
 
-import android.util.Log
-import kotlin.random.Random
-
 class MyTask(
-	val priority: Int,
-	val runnable: Runnable,
+	val thread: Thread,
 	val needResourceA: Int,
 	val needResourceB: Int
 ): Comparable<MyTask> {
 
 	override fun compareTo(other: MyTask): Int {
-		return this.priority.compareTo(other.priority)
+		return this.thread.priority.compareTo(other.thread.priority)
 	}
 }
