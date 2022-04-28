@@ -4,7 +4,6 @@ import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
 import java.util.*
-import java.util.concurrent.PriorityBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import kotlin.random.Random
 
@@ -13,7 +12,7 @@ class TaskOrchestra(
     private val threadPoolExecutor: ThreadPoolExecutor
 ) {
 
-    private val mBlockingQueue: PriorityBlockingQueue<MyTask> = PriorityBlockingQueue(
+    private val taskQueue: PriorityQueue<MyTask> = PriorityQueue(
         50,
         Comparator.reverseOrder()
     )
@@ -35,7 +34,7 @@ class TaskOrchestra(
         }
         thread.priority = getPriority()
 
-        mBlockingQueue.put(
+        taskQueue.add(
             MyTask(
                 thread,
                 Random.nextInt(1, 15),
@@ -46,31 +45,16 @@ class TaskOrchestra(
     }
 
     private fun chooseTaskAndStart() {
+        val task = taskQueue.peek()
 
-        val task = mBlockingQueue.take()
-        Log.d("ASD", "${resourceA.size} before aaa   ${resourceB.size} bbbb")
-
-        if (task.needResourceA <= resourceA.size && task.needResourceB <= resourceB.size) {
-            resourceA.subList(0, task.needResourceA).clear()
-            resourceB.subList(0, task.needResourceB).clear()
-//            Log.d("ASD", "${task.needResourceA}  need a   ${task.needResourceB} need bbbb11")
-            execute(task)
-        } else {
-            when (task.thread.priority) {
-                Thread.MAX_PRIORITY -> {
-                    Log.d("ASD", "tipo wait")
-                    /**
-                     * шо если я её тоже просто верну в очередь
-                     * так переберутся приоритетные задачи, вдруг на какую то будут ресурсы
-                     * если она единственная, то после завершения других задач всё равно она будет первая в очереди
-                     */
-                    mBlockingQueue.put(task)
-                }
-
-                else -> {
-                    mBlockingQueue.put(task)
-                    Log.d("ASD", "вернули обратно лоховскую задачу")
-                }
+        Log.d("ASD", "AVAILABLE ${resourceA.size} a     ${resourceB.size} b")
+        if (task != null) {
+            Log.d("ASD", "NEED  ${task.needResourceA} a     ${task.needResourceB}  b")
+            if (task.needResourceA <= resourceA.size && task.needResourceB <= resourceB.size) {
+                resourceA.subList(0, task.needResourceA).clear()
+                resourceB.subList(0, task.needResourceB).clear()
+                taskQueue.poll()
+                execute(task)
             }
         }
     }
@@ -99,7 +83,6 @@ class TaskOrchestra(
         return priorityArr[pr]
     }
 
-    @Synchronized
     private fun fillResources() {
         val resACount = Random.nextInt(15, 25)
         val resBCount = Random.nextInt(15, 25)
@@ -114,14 +97,12 @@ class TaskOrchestra(
         }
     }
 
-    @Synchronized
     private fun releaseResA(res: MutableList<ResourceA>, k: Int) {
         for (i in 0 until k) {
             res.add(ResourceA())
         }
     }
 
-    @Synchronized
     private fun releaseResB(res: MutableList<ResourceB>, k: Int) {
         for (i in 0 until k) {
             res.add(ResourceB())
