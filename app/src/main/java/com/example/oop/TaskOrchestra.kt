@@ -4,122 +4,127 @@ import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
 import java.util.*
-import java.util.concurrent.ArrayBlockingQueue
-import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.PriorityBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
-import java.util.concurrent.locks.ReentrantLock
 import kotlin.random.Random
 
 @RequiresApi(Build.VERSION_CODES.N)
 class TaskOrchestra(
-	private val threadPoolExecutor: ThreadPoolExecutor
+    private val threadPoolExecutor: ThreadPoolExecutor
 ) {
 
-	private val mBlockingQueue: PriorityBlockingQueue<MyTask> = PriorityBlockingQueue(
-		50,
-		Comparator.reverseOrder()
-	)
-	private val resACount = Random.nextInt(15, 25)
-	private val resBCount = Random.nextInt(15, 25)
+    private val mBlockingQueue: PriorityBlockingQueue<MyTask> = PriorityBlockingQueue(
+        50,
+        Comparator.reverseOrder()
+    )
+    private val resourceA: MutableList<ResourceA> = mutableListOf()
 
-	private var resourceA: LinkedBlockingQueue<ResourceA> = LinkedBlockingQueue(resACount)
+    private val resourceB: MutableList<ResourceB> = mutableListOf()
 
-	private var resourceB: LinkedBlockingQueue<ResourceB> = LinkedBlockingQueue(resBCount)
+    private val priorityArr =
+        arrayListOf(Thread.MAX_PRIORITY, Thread.MIN_PRIORITY, Thread.NORM_PRIORITY)
 
-	private val lock = ReentrantLock()
-	private val c = lock.newCondition()
+    init {
+        fillResources()
+    }
 
-	private val priorityArr = arrayListOf(Thread.MAX_PRIORITY, Thread.MIN_PRIORITY, Thread.NORM_PRIORITY)
+    @Synchronized
+    fun newTask() {
+        val thread = Thread {
+            Thread.sleep(Random.nextLong(1000, 4000))
+        }
+        thread.priority = getPriority()
 
-	init {
-		fillResources()
-	}
+        mBlockingQueue.put(
+            MyTask(
+                thread,
+                Random.nextInt(1, 15),
+                Random.nextInt(1, 15)
+            )
+        )
+        chooseTaskAndStart()
+    }
 
-	fun newTask() {
-		val thread = Thread {
-			Thread.sleep(Random.nextLong(1000, 4000))
-		}
-		thread.priority = getPriority()
+    private fun chooseTaskAndStart() {
 
-		mBlockingQueue.put(
-			MyTask(
-				thread,
-				Random.nextInt(1, 15),
-				Random.nextInt(1, 15)
-			)
-		)
-	}
+        val task = mBlockingQueue.take()
+        Log.d("ASD", "${resourceA.size} before aaa   ${resourceB.size} bbbb")
 
-	fun taskFinished() {
-		// чота ещё наверна
-		c.signalAll()
-		doChota()
-	}
+        if (task.needResourceA <= resourceA.size && task.needResourceB <= resourceB.size) {
+            resourceA.subList(0, task.needResourceA).clear()
+            resourceB.subList(0, task.needResourceB).clear()
+//            Log.d("ASD", "${task.needResourceA}  need a   ${task.needResourceB} need bbbb11")
+            execute(task)
+        } else {
+            when (task.thread.priority) {
+                Thread.MAX_PRIORITY -> {
+                    Log.d("ASD", "tipo wait")
+                    /**
+                     * шо если я её тоже просто верну в очередь
+                     * так переберутся приоритетные задачи, вдруг на какую то будут ресурсы
+                     * если она единственная, то после завершения других задач всё равно она будет первая в очереди
+                     */
+                    mBlockingQueue.put(task)
+                }
 
-	fun doChota() {
-		val blockedResourceA: ArrayBlockingQueue<ResourceA> = ArrayBlockingQueue(15)
-		val blockedResourceB: ArrayBlockingQueue<ResourceB> = ArrayBlockingQueue(15)
-		val task = mBlockingQueue.take()
-		lock.lock()
-		Log.d("ASD", "${resourceA.size}  ${resourceB.size}")
-		if (task.needResourceA > resourceA.size || task.needResourceB > resourceB.size) {
-			when (task.thread.priority) {
-				Thread.MAX_PRIORITY -> {
-					c.await()
-				}
-				else -> {
-					mBlockingQueue.put(task)
-				}
-			}
-		} else {
-			resourceA.drainTo(blockedResourceA, task.needResourceA)
-			resourceB.drainTo(blockedResourceB, task.needResourceB)
+                else -> {
+                    mBlockingQueue.put(task)
+                    Log.d("ASD", "вернули обратно лоховскую задачу")
+                }
+            }
+        }
+    }
 
-			lock.unlock()
-			Log.d("ASD", "need b ${task.needResourceB} block ${blockedResourceB.size}")
-			threadPoolExecutor.execute {
-				try {
-					task.thread.run()
-					lock.lock()
-					blockedResourceA.drainTo(resourceA)
-					blockedResourceA.clear()
-					blockedResourceB.drainTo(resourceB)
-					blockedResourceB.clear()
-					taskFinished()
-					lock.unlock()
-				} catch (e: IllegalThreadStateException) {
-					Log.e("ASD", e.toString())
-				}
-			}
 
-		}
-	}
+    private fun execute(task: MyTask) {
+        Log.d("ASD", "EXECUTE")
+        threadPoolExecutor.execute {
+            task.thread.run()
+            onTaskFinished(task)
+        }
+    }
 
-	@Synchronized
-	private fun chooseTaskAndStart() {
+    @Synchronized
+    private fun onTaskFinished(
+        task: MyTask
+    ) {
+        Log.d("ASD", "FINISHED")
+        releaseResA(resourceA, task.needResourceA)
+        releaseResB(resourceB, task.needResourceB)
+        chooseTaskAndStart()
+    }
 
-	}
+    private fun getPriority(): Int {
+        val pr = Random.nextInt(priorityArr.size)
+        return priorityArr[pr]
+    }
 
-	@Synchronized
-	private fun onTaskFinished() {
+    @Synchronized
+    private fun fillResources() {
+        val resACount = Random.nextInt(15, 25)
+        val resBCount = Random.nextInt(15, 25)
+        Log.d("ASD", "all a $resACount  b $resBCount")
 
-	}
+        for (i in 0 until resACount) {
+            resourceA.add(ResourceA())
+        }
 
-	private fun getPriority(): Int {
-		val pr = Random.nextInt(priorityArr.size)
-		return priorityArr[pr]
-	}
+        for (i in 0 until resBCount) {
+            resourceB.add(ResourceB())
+        }
+    }
 
-	private fun fillResources() {
-		resourceA.clear()
-		resourceB.clear()
-		for (i in 0 until resACount) {
-			resourceA.add(ResourceA())
-		}
+    @Synchronized
+    private fun releaseResA(res: MutableList<ResourceA>, k: Int) {
+        for (i in 0 until k) {
+            res.add(ResourceA())
+        }
+    }
 
-		for (i in 0 until resBCount) {
-			resourceB.add(ResourceB())
-		}
-	}
+    @Synchronized
+    private fun releaseResB(res: MutableList<ResourceB>, k: Int) {
+        for (i in 0 until k) {
+            res.add(ResourceB())
+        }
+    }
 }
